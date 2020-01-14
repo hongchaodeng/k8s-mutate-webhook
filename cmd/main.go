@@ -45,7 +45,6 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/mutate", handleMutate)
 
 	s := &http.Server{
