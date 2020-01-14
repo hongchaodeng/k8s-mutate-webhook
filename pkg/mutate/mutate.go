@@ -8,9 +8,16 @@ import (
 	"log"
 
 	v1beta1 "k8s.io/api/admission/v1beta1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+type patchRecord struct {
+	Op    string      `json:"op,inline"`
+	Path  string      `json:"path,inline"`
+	Value interface{} `json:"value"`
+}
 
 // Mutate mutates
 func Mutate(body []byte) ([]byte, error) {
@@ -24,7 +31,7 @@ func Mutate(body []byte) ([]byte, error) {
 	}
 
 	var err error
-	var pod *corev1.Pod
+	var deployment *appsv1.Deployment
 
 	responseBody := []byte{}
 	ar := admReview.Request
@@ -33,7 +40,7 @@ func Mutate(body []byte) ([]byte, error) {
 	if ar != nil {
 
 		// get the Pod object and unmarshal it into its struct, if we cannot, we might as well stop here
-		if err := json.Unmarshal(ar.Object.Raw, &pod); err != nil {
+		if err := json.Unmarshal(ar.Object.Raw, &deployment); err != nil {
 			return nil, fmt.Errorf("unable unmarshal pod json object %v", err)
 		}
 		// set response options
@@ -49,12 +56,26 @@ func Mutate(body []byte) ([]byte, error) {
 
 		// the actual mutation is done by a string in JSONPatch style, i.e. we don't _actually_ modify the object, but
 		// tell K8S how it should modifiy it
-		p := []map[string]string{}
-		for i := range pod.Spec.Containers {
-			patch := map[string]string{
-				"op":    "replace",
-				"path":  fmt.Sprintf("/spec/containers/%d/image", i),
-				"value": "debian",
+		p := []patchRecord{}
+
+		for i := range deployment.Spec.Template.Spec.Containers {
+			patch := patchRecord{
+				Op:    "add",
+				Path:  fmt.Sprintf("/spec/template/spec/containers/%d/envFrom", i),
+				Value: []corev1.EnvFromSource{},
+			}
+			p = append(p, patch)
+
+			patch = patchRecord{
+				Op:   "add",
+				Path: fmt.Sprintf("/spec/template/spec/containers/%d/envFrom/-", i),
+				Value: corev1.EnvFromSource{
+					SecretRef: &corev1.SecretEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "my-secret",
+						},
+					},
+				},
 			}
 			p = append(p, patch)
 		}
